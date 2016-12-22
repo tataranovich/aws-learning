@@ -1,0 +1,223 @@
+{
+  "AWSTemplateFormatVersion" : "2010-09-09",
+  "Description" : "Create ECS cluster",
+  "Parameters" : {
+    "KeyName" : {
+      "Description" : "Amazon EC2 key name",
+      "Type" : "AWS::EC2::KeyPair::KeyName"
+    },
+    "ECSInstanceNumber": {
+      "Description" : "ECS cluster instances number",
+      "Type" : "Number",
+      "Default" : "2"
+    },
+    "ECSSharedMountpoint": {
+      "Description" : "ECS cluster shared mountpoint",
+      "Type" : "String",
+      "Default" : "/www"
+    }
+  },
+  "Resources" : {
+    "VPC": {
+      "Type" : "AWS::EC2::VPC",
+      "Properties" : {
+        "CidrBlock": "192.168.0.0/16",
+        "EnableDnsSupport": "true",
+        "EnableDnsHostnames": "true"
+      }
+    },
+    "InternetGateway": {
+      "Type" : "AWS::EC2::InternetGateway"
+    },
+    "GatewayToInternet" : {
+      "Type" : "AWS::EC2::VPCGatewayAttachment",
+      "Properties" : {
+        "VpcId" : { "Ref" : "VPC" },
+        "InternetGatewayId" : { "Ref" : "InternetGateway" }
+      }
+    },
+    "RouteTable" : {
+      "Type" : "AWS::EC2::RouteTable",
+      "Properties" : {
+        "VpcId" : { "Ref" : "VPC" }
+      }
+    },
+    "SubnetRouteTableAssoc" : {
+      "Type" : "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties" : {
+        "RouteTableId" : { "Ref" : "RouteTable" },
+        "SubnetId" : { "Ref" : "Subnet" }
+      }
+    },
+    "InternetGatewayRoute" : {
+      "Type" : "AWS::EC2::Route",
+      "Properties" : {
+        "DestinationCidrBlock" : "0.0.0.0/0",
+        "RouteTableId" : { "Ref" : "RouteTable" },
+        "GatewayId" : { "Ref" : "InternetGateway" }
+      }
+    },
+    "Subnet": {
+      "Type" : "AWS::EC2::Subnet",
+      "Properties" : {
+        "CidrBlock" : "192.168.0.0/24",
+        "MapPublicIpOnLaunch" : "true",
+        "VpcId" : { "Ref" : "VPC"}
+      }
+    },
+    "InstanceSecurityGroup": {
+      "Type" : "AWS::EC2::SecurityGroup",
+      "Properties" : {
+        "GroupDescription" : "Allow SSH and HTTP",
+        "VpcId" : { "Ref" : "VPC" },
+        "SecurityGroupIngress" : [
+          {
+            "IpProtocol" : "tcp",
+            "CidrIp" : "0.0.0.0/0",
+            "FromPort" : "22",
+            "ToPort" : "22"
+          },
+          {
+            "IpProtocol" : "tcp",
+            "CidrIp" : "0.0.0.0/0",
+            "FromPort" : "80",
+            "ToPort" : "80"
+          }
+        ]
+      }
+    },
+    "MountTargetSecurityGroup" : {
+      "Type" : "AWS::EC2::SecurityGroup",
+      "Properties" : {
+        "GroupDescription" : "Allow NFS",
+        "VpcId" : { "Ref" : "VPC" },
+        "SecurityGroupIngress" : [
+          {
+            "IpProtocol" : "tcp",
+            "CidrIp" : "0.0.0.0/0",
+            "FromPort" : "2049",
+            "ToPort" : "2049"
+          }
+        ]
+      }
+    },
+    "Filesystem" : {
+      "Type" : "AWS::EFS::FileSystem",
+      "Properties" : {
+        "FileSystemTags" : [
+          {
+            "Key" : "Name",
+            "Value" : "ECSSharedMountpoint"
+          }
+        ]
+      }
+    },
+    "MountTarget" : {
+      "Type" : "AWS::EFS::MountTarget",
+      "Properties" : {
+        "FileSystemId" : { "Ref" : "Filesystem" },
+        "SubnetId" : { "Ref" : "Subnet" },
+        "SecurityGroups": [
+          { "Ref" : "MountTargetSecurityGroup" }
+        ]
+      }
+    },
+    "LaunchConfiguration" : {
+      "Type" : "AWS::AutoScaling::LaunchConfiguration",
+      "Properties" : {
+        "InstanceType" : "t2.micro",
+        "ImageId" : "ami-5ec1673e",
+        "KeyName" : { "Ref" : "KeyName" },
+        "SecurityGroups" : [
+          { "Ref" : "InstanceSecurityGroup" }
+        ],
+        "UserData" : { "Fn::Base64" : { "Fn::Join" : ["", [
+          "#!/bin/bash\n",
+          "yum -y update\n",
+          "yum -y install docker nfs-utils\n",
+          "service docker start\n",
+          "chkconfig docker on\n",
+          { "Fn::Join" : [ "", [ "mkdir ", { "Ref" : "ECSSharedMountpoint" }, "\n" ] ] },
+          { "Fn::Join" : [ "", [
+            "mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 ",
+            { "Fn::Join" : ["", [
+              { "Ref" : "Filesystem" },
+              ".efs.",
+              { "Ref" : "AWS::Region" },
+              ".amazonaws.com:/ ",
+              { "Ref" : "ECSSharedMountpoint" },
+              "\n"
+            ]]}
+          ]]},
+          { "Fn::Join" : [ "", [
+            "chown ec2-user:ec2-user ",
+            { "Ref" : "ECSSharedMountpoint" },
+            "\n"
+          ]]}
+        ]]}}
+      }
+    },
+    "AutoScalingGroup" : {
+      "Type" : "AWS::AutoScaling::AutoScalingGroup",
+      "DependsOn" : [ "GatewayToInternet", "MountTarget" ],
+      "Properties" : {
+        "DesiredCapacity" : { "Ref" : "ECSInstanceNumber" },
+        "MinSize" : "1",
+        "MaxSize" : { "Ref" : "ECSInstanceNumber" },
+        "LaunchConfigurationName" : { "Ref" : "LaunchConfiguration" },
+        "LoadBalancerNames" : [ { "Ref" : "LoadBalancer" } ],
+        "VPCZoneIdentifier" : [ { "Ref": "Subnet" } ]
+      }
+    },
+    "LoadBalancer" : {
+      "Type" : "AWS::ElasticLoadBalancing::LoadBalancer",
+      "Properties" : {
+        "Listeners" : [
+          {
+            "InstancePort" : "80",
+            "InstanceProtocol" : "TCP",
+            "LoadBalancerPort" : "80",
+            "Protocol" : "TCP"
+          }
+        ],
+        "LoadBalancerName" : "ecs-lb",
+        "Subnets" : [
+          { "Ref" : "Subnet" }
+        ]
+      }
+    }
+  },
+  "Outputs" : {
+    "LoadBalancerURL" : {
+      "Description" : "Show load balancer URL",
+      "Value" : { "Fn::Join" : [ "", [ "http://", { "Fn::GetAtt" : [ "LoadBalancer", "DNSName" ] } ] ] }
+    },
+    "DebugUserData": {
+      "Description" : "Debug UserData",
+      "Value" :  { "Fn::Join" : ["", [
+          "#!/bin/bash\n",
+          "yum -y update\n",
+          "yum -y install docker nfs-utils\n",
+          "service docker start\n",
+          "chkconfig docker on\n",
+          { "Fn::Join" : [ "", [ "mkdir ", { "Ref" : "ECSSharedMountpoint" }, "\n" ] ] },
+          { "Fn::Join" : [ "", [
+            "mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 ",
+            { "Fn::Join" : ["", [
+              { "Ref" : "Filesystem" },
+              ".efs.",
+              { "Ref" : "AWS::Region" },
+              ".amazonaws.com:/ ",
+              { "Ref" : "ECSSharedMountpoint" },
+              "\n"
+            ]]}
+          ]]},
+          { "Fn::Join" : [ "", [
+            "chown ec2-user:ec2-user ",
+            { "Ref" : "ECSSharedMountpoint" },
+            "\n"
+          ]]}
+        ]]}
+    }
+  }
+}
