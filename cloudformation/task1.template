@@ -131,35 +131,56 @@
         "SecurityGroups" : [
           { "Ref" : "InstanceSecurityGroup" }
         ],
-        "UserData" : { "Fn::Base64" : { "Fn::Join" : ["", [
-          "#!/bin/bash\n",
-          "yum -y update\n",
-          "yum -y install docker nfs-utils\n",
-          "service docker start\n",
-          "chkconfig docker on\n",
-          { "Fn::Join" : [ "", [ "mkdir ", { "Ref" : "ECSSharedMountpoint" }, "\n" ] ] },
-          { "Fn::Join" : [ "", [
-            "mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 ",
-            { "Fn::Join" : ["", [
-              { "Ref" : "Filesystem" },
-              ".efs.",
-              { "Ref" : "AWS::Region" },
-              ".amazonaws.com:/ ",
-              { "Ref" : "ECSSharedMountpoint" },
-              "\n"
-            ]]}
-          ]]},
-          { "Fn::Join" : [ "", [
-            "chown ec2-user:ec2-user ",
-            { "Ref" : "ECSSharedMountpoint" },
-            "\n"
-          ]]}
-        ]]}}
+        "IamInstanceProfile" : { "Ref" : "ECSInstanceProfile" },
+        "UserData" : {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/bash\n",
+                "yum -y update\n",
+                "echo ECS_CLUSTER=", { "Ref" : "ECSCluster" }, ">>/etc/ecs/ecs.config\n",
+                "yum -y install docker nfs-utils ecs-init\n",
+                "service docker start\n",
+                "chkconfig docker on\n",
+                "start ecs",
+                "mkdir -p ",
+                {
+                  "Ref": "ECSSharedMountpoint"
+                },
+                "\n",
+                "mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 ",
+                {
+                  "Ref": "Filesystem"
+                },
+                ".efs.",
+                {
+                  "Ref": "AWS::Region"
+                },
+                ".amazonaws.com:/ ",
+                {
+                  "Ref": "ECSSharedMountpoint"
+                },
+                "\n",
+                "chown ec2-user:ec2-user ",
+                {
+                  "Ref": "ECSSharedMountpoint"
+                },
+                "\n"
+              ]
+            ]
+          }
+        }
+      },
+      "UpdatePolicy" : {
+        "AutoScalingReplacingUpdate" : {
+          "WillReplace" : "true"
+        }
       }
     },
     "AutoScalingGroup" : {
       "Type" : "AWS::AutoScaling::AutoScalingGroup",
-      "DependsOn" : [ "GatewayToInternet", "MountTarget" ],
+      "DependsOn" : [ "GatewayToInternet", "MountTarget", "ECSCluster" ],
       "Properties" : {
         "DesiredCapacity" : { "Ref" : "ECSInstanceNumber" },
         "MinSize" : "1",
@@ -185,39 +206,167 @@
           { "Ref" : "Subnet" }
         ]
       }
+    },
+    "ECSCluster" : {
+      "Type" : "AWS::ECS::Cluster",
+      "Properties" : {
+        "ClusterName" : "ECSCluster"
+      }
+    },
+    "ECSInstanceRole" : {
+      "Type" : "AWS::IAM::Role",
+      "Properties" : {
+        "AssumeRolePolicyDocument" : {
+          "Statement" : [
+            {
+              "Effect" : "Allow",
+              "Principal" : {
+                "Service" : [
+                  "ec2.amazonaws.com"
+                ]
+              },
+              "Action":[
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        },
+        "Path" : "/",
+        "Policies" : [
+          {
+            "PolicyName" : "ECSInstanceRole",
+            "PolicyDocument" : {
+              "Statement" : [
+                {
+                  "Effect" : "Allow",
+                  "Action" : [
+                    "ecs:CreateCluster",
+                    "ecs:DeregisterContainerInstance",
+                    "ecs:DiscoverPollEndpoint",
+                    "ecs:Poll",
+                    "ecs:RegisterContainerInstance",
+                    "ecs:StartTelemetrySession",
+                    "ecs:Submit*",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Resource" : "*"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "ECSServiceRole" : {
+      "Type" : "AWS::IAM::Role",
+      "Properties" : {
+        "AssumeRolePolicyDocument" : {
+          "Statement" : [
+            {
+              "Effect" : "Allow",
+              "Principal" : {
+                "Service" : [
+                  "ecs.amazonaws.com"
+                ]
+              },
+              "Action" : [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        },
+        "Path" : "/",
+        "Policies" : [
+          {
+            "PolicyName" : "ECSServiceRole",
+            "PolicyDocument" : {
+              "Statement" : [
+                {
+                  "Effect" : "Allow",
+                  "Action" : [
+                    "elasticloadbalancing:DeregisterInstancesFromLoadBalancer",
+                    "elasticloadbalancing:DeregisterTargets",
+                    "elasticloadbalancing:Describe*",
+                    "elasticloadbalancing:RegisterInstancesWithLoadBalancer",
+                    "elasticloadbalancing:RegisterTargets",
+                    "ec2:Describe*",
+                    "ec2:AuthorizeSecurityGroupIngress"
+                  ],
+                  "Resource" : "*"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "ECSOperatorRole" : {
+      "Type" : "AWS::IAM::Role",
+      "Properties" : {
+        "AssumeRolePolicyDocument" : {
+          "Statement" : [
+            {
+              "Effect" : "Allow",
+              "Principal" : {
+                "Service" : [
+                  "ec2.amazonaws.com"
+                ]
+              },
+              "Action" : [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        },
+        "Path" : "/",
+        "Policies" : [
+          {
+            "PolicyName" : "ECSOperatorRole",
+            "PolicyDocument" : {
+              "Statement" : [
+                {
+                  "Effect" : "Allow",
+                  "Action" : [
+                    "ecr:GetAuthorizationToken",
+			        "ecr:BatchCheckLayerAvailability",
+			        "ecr:GetDownloadUrlForLayer",
+			        "ecr:GetRepositoryPolicy",
+			        "ecr:DescribeRepositories",
+			        "ecr:ListImages",
+                    "ecr:DescribeImages",
+			        "ecr:BatchGetImage",
+			        "ecr:InitiateLayerUpload",
+			        "ecr:UploadLayerPart",
+                    "ecr:CompleteLayerUpload",
+			        "ecr:PutImage"
+                  ],
+                  "Resource" : "*"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "ECSInstanceProfile" : {
+      "Type" : "AWS::IAM::InstanceProfile",
+      "Properties" : {
+        "Path" : "/",
+        "Roles" : [ { "Ref" : "ECSInstanceRole" } ]
+      }
+    },
+    "ECSSampleRepository" : {
+      "Type" : "AWS::ECR::Repository",
+      "Properties" : {
+        "RepositoryName" : "sample-repository"
+      }
     }
   },
   "Outputs" : {
     "LoadBalancerURL" : {
       "Description" : "Show load balancer URL",
       "Value" : { "Fn::Join" : [ "", [ "http://", { "Fn::GetAtt" : [ "LoadBalancer", "DNSName" ] } ] ] }
-    },
-    "DebugUserData": {
-      "Description" : "Debug UserData",
-      "Value" :  { "Fn::Join" : ["", [
-          "#!/bin/bash\n",
-          "yum -y update\n",
-          "yum -y install docker nfs-utils\n",
-          "service docker start\n",
-          "chkconfig docker on\n",
-          { "Fn::Join" : [ "", [ "mkdir ", { "Ref" : "ECSSharedMountpoint" }, "\n" ] ] },
-          { "Fn::Join" : [ "", [
-            "mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 ",
-            { "Fn::Join" : ["", [
-              { "Ref" : "Filesystem" },
-              ".efs.",
-              { "Ref" : "AWS::Region" },
-              ".amazonaws.com:/ ",
-              { "Ref" : "ECSSharedMountpoint" },
-              "\n"
-            ]]}
-          ]]},
-          { "Fn::Join" : [ "", [
-            "chown ec2-user:ec2-user ",
-            { "Ref" : "ECSSharedMountpoint" },
-            "\n"
-          ]]}
-        ]]}
     }
   }
 }
