@@ -27,7 +27,8 @@
                 "cloudwatch:Describe*",
                 "cloudwatch:List*",
                 "cloudwatch:Get*",
-                "application-autoscaling:Describe*"
+                "application-autoscaling:Describe*",
+                "lambda:InvokeFunction"
             ],
             "Resource": "*"
         }
