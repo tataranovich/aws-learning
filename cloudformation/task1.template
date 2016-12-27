@@ -2,6 +2,14 @@
   "AWSTemplateFormatVersion" : "2010-09-09",
   "Description" : "Create ECS cluster",
   "Parameters" : {
+    "VPC":{
+      "Type":"AWS::EC2::VPC::Id",
+      "Description":"Select a VPC"
+    },
+    "Subnet":{
+      "Type":"AWS::EC2::Subnet::Id",
+      "Description":"Select subnet in your selected VPC"
+    },
     "KeyName" : {
       "Description" : "Amazon EC2 key name",
       "Type" : "AWS::EC2::KeyPair::KeyName"
@@ -18,53 +26,6 @@
     }
   },
   "Resources" : {
-    "VPC": {
-      "Type" : "AWS::EC2::VPC",
-      "Properties" : {
-        "CidrBlock": "192.168.0.0/16",
-        "EnableDnsSupport": "true",
-        "EnableDnsHostnames": "true"
-      }
-    },
-    "InternetGateway": {
-      "Type" : "AWS::EC2::InternetGateway"
-    },
-    "GatewayToInternet" : {
-      "Type" : "AWS::EC2::VPCGatewayAttachment",
-      "Properties" : {
-        "VpcId" : { "Ref" : "VPC" },
-        "InternetGatewayId" : { "Ref" : "InternetGateway" }
-      }
-    },
-    "RouteTable" : {
-      "Type" : "AWS::EC2::RouteTable",
-      "Properties" : {
-        "VpcId" : { "Ref" : "VPC" }
-      }
-    },
-    "SubnetRouteTableAssoc" : {
-      "Type" : "AWS::EC2::SubnetRouteTableAssociation",
-      "Properties" : {
-        "RouteTableId" : { "Ref" : "RouteTable" },
-        "SubnetId" : { "Ref" : "Subnet" }
-      }
-    },
-    "InternetGatewayRoute" : {
-      "Type" : "AWS::EC2::Route",
-      "Properties" : {
-        "DestinationCidrBlock" : "0.0.0.0/0",
-        "RouteTableId" : { "Ref" : "RouteTable" },
-        "GatewayId" : { "Ref" : "InternetGateway" }
-      }
-    },
-    "Subnet": {
-      "Type" : "AWS::EC2::Subnet",
-      "Properties" : {
-        "CidrBlock" : "192.168.0.0/24",
-        "MapPublicIpOnLaunch" : "true",
-        "VpcId" : { "Ref" : "VPC"}
-      }
-    },
     "InstanceSecurityGroup": {
       "Type" : "AWS::EC2::SecurityGroup",
       "Properties" : {
@@ -82,6 +43,12 @@
             "CidrIp" : "0.0.0.0/0",
             "FromPort" : "80",
             "ToPort" : "80"
+          },
+          {
+            "IpProtocol" : "tcp",
+            "CidrIp" : "0.0.0.0/0",
+            "FromPort" : "31000",
+            "ToPort" : "61000"
           }
         ]
       }
@@ -126,7 +93,7 @@
       "Type" : "AWS::AutoScaling::LaunchConfiguration",
       "Properties" : {
         "InstanceType" : "t2.micro",
-        "ImageId" : "ami-5ec1673e",
+        "ImageId" : "ami-a08b3dc0",
         "KeyName" : { "Ref" : "KeyName" },
         "SecurityGroups" : [
           { "Ref" : "InstanceSecurityGroup" }
@@ -138,35 +105,19 @@
               "",
               [
                 "#!/bin/bash\n",
-                "yum -y update\n",
-                "echo ECS_CLUSTER=", { "Ref" : "ECSCluster" }, ">>/etc/ecs/ecs.config\n",
-                "yum -y install docker nfs-utils ecs-init\n",
+                "mkdir ", { "Ref": "ECSSharedMountpoint" }, "\n",
+                "echo '", { "Ref": "Filesystem" }, ".efs.", { "Ref": "AWS::Region" }, ".amazonaws.com:/ ",
+                { "Ref": "ECSSharedMountpoint" },
+                " nfs4 _netdev,nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 0 2' >> /etc/fstab\n",
+                "mount ", { "Ref": "ECSSharedMountpoint" }, "\n",
+                "chown centos:centos ", { "Ref": "ECSSharedMountpoint" }, "\n",
+                "echo ECS_CLUSTER=", { "Ref" : "ECSCluster" }, " >>/etc/ecs/ecs.config\n",
+                "ln -s /etc/ssl/certs/ca-bundle.crt /etc/ssl/ca-bundle.pem\n",
                 "service docker start\n",
                 "chkconfig docker on\n",
-                "start ecs",
-                "mkdir -p ",
-                {
-                  "Ref": "ECSSharedMountpoint"
-                },
-                "\n",
-                "mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 ",
-                {
-                  "Ref": "Filesystem"
-                },
-                ".efs.",
-                {
-                  "Ref": "AWS::Region"
-                },
-                ".amazonaws.com:/ ",
-                {
-                  "Ref": "ECSSharedMountpoint"
-                },
-                "\n",
-                "chown ec2-user:ec2-user ",
-                {
-                  "Ref": "ECSSharedMountpoint"
-                },
-                "\n"
+                "usermod -aG docker centos\n",
+                "service amazon-ecs start\n",
+                "chkconfig amazon-ecs on\n"
               ]
             ]
           }
@@ -180,7 +131,7 @@
     },
     "AutoScalingGroup" : {
       "Type" : "AWS::AutoScaling::AutoScalingGroup",
-      "DependsOn" : [ "GatewayToInternet", "MountTarget", "ECSCluster" ],
+      "DependsOn" : [ "MountTarget", "ECSCluster" ],
       "Properties" : {
         "DesiredCapacity" : { "Ref" : "ECSInstanceNumber" },
         "MinSize" : "1",
