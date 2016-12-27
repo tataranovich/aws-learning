@@ -1,0 +1,35 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "cloudformation:Describe*",
+                "cloudformation:List*",
+                "cloudformation:CreateUploadBucket",
+                "ecs:Describe*",
+                "ecs:List*",
+                "ecs:*Service",
+                "ecs:*Task",
+                "ecs:*TaskDefinition",
+                "ecr:Describe*",
+                "ecr:List*",
+                "ecr:CreateRepository",
+                "ecr:GetAuthorizationToken",
+                "ecr:BatchCheckLayerAvailability",
+                "ecr:GetDownloadUrlForLayer",
+                "ecr:GetRepositoryPolicy",
+                "ecr:BatchGetImage",
+                "ecr:InitiateLayerUpload",
+                "ecr:UploadLayerPart",
+                "ecr:CompleteLayerUpload",
+                "ecr:PutImage",
+                "cloudwatch:Describe*",
+                "cloudwatch:List*",
+                "cloudwatch:Get*",
+                "application-autoscaling:Describe*"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
