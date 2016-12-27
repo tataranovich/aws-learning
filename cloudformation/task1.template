@@ -152,6 +152,9 @@
             "Protocol" : "TCP"
           }
         ],
+        "SecurityGroups" : [
+          { "Ref" : "InstanceSecurityGroup" }
+        ],
         "LoadBalancerName" : "ecs-lb",
         "Subnets" : [
           { "Ref" : "Subnet" }
@@ -243,54 +246,6 @@
                     "elasticloadbalancing:RegisterTargets",
                     "ec2:Describe*",
                     "ec2:AuthorizeSecurityGroupIngress"
-                  ],
-                  "Resource" : "*"
-                }
-              ]
-            }
-          }
-        ]
-      }
-    },
-    "ECSOperatorRole" : {
-      "Type" : "AWS::IAM::Role",
-      "Properties" : {
-        "AssumeRolePolicyDocument" : {
-          "Statement" : [
-            {
-              "Effect" : "Allow",
-              "Principal" : {
-                "Service" : [
-                  "ec2.amazonaws.com"
-                ]
-              },
-              "Action" : [
-                "sts:AssumeRole"
-              ]
-            }
-          ]
-        },
-        "Path" : "/",
-        "Policies" : [
-          {
-            "PolicyName" : "ECSOperatorRole",
-            "PolicyDocument" : {
-              "Statement" : [
-                {
-                  "Effect" : "Allow",
-                  "Action" : [
-                    "ecr:GetAuthorizationToken",
-			        "ecr:BatchCheckLayerAvailability",
-			        "ecr:GetDownloadUrlForLayer",
-			        "ecr:GetRepositoryPolicy",
-			        "ecr:DescribeRepositories",
-			        "ecr:ListImages",
-                    "ecr:DescribeImages",
-			        "ecr:BatchGetImage",
-			        "ecr:InitiateLayerUpload",
-			        "ecr:UploadLayerPart",
-                    "ecr:CompleteLayerUpload",
-			        "ecr:PutImage"
                   ],
                   "Resource" : "*"
                 }
