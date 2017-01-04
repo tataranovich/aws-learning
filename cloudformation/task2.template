@@ -1,0 +1,98 @@
+{
+  "AWSTemplateFormatVersion" : "2010-09-09",
+  "Description" : "Create postresql rds and ec2 instance",
+  "Parameters" : {
+    "VPC" : {
+      "Type" : "AWS::EC2::VPC::Id",
+      "Description" : "Select a VPC"
+    },
+    "KeyName" : {
+      "Description" : "Amazon EC2 key name",
+      "Type" : "AWS::EC2::KeyPair::KeyName"
+    },
+    "DBName": {
+      "Type" : "String",
+      "Default" : "pgtest",
+      "Description" : "Postresql database name"
+    },
+    "DBUser": {
+      "Type" : "String",
+      "Default" : "pgadmin",
+      "Description" : "Postresql username"
+    },
+    "DBPassword": {
+      "Type" : "String",
+      "Default" : "!pgadmin#",
+      "Description" : "Postresql password"
+    }
+  },
+  "Resources" : {
+    "RDSSecurityGroup" : {
+      "Type" : "AWS::EC2::SecurityGroup",
+      "Properties" : {
+        "GroupDescription" : "PG security group",
+        "VpcId" : { "Ref" : "VPC" }
+      }
+    },
+    "RDSSecurityGroupSSHInbound" : {
+      "Type" : "AWS::EC2::SecurityGroupIngress",
+      "Properties" : {
+        "GroupId" : { "Ref" : "RDSSecurityGroup" },
+        "IpProtocol" : "tcp",
+        "FromPort" : "22",
+        "ToPort" : "22",
+        "CidrIp" : "0.0.0.0/0"
+      }
+    },
+    "RDSSecurityGroupPostresqlInbound" : {
+      "Type" : "AWS::EC2::SecurityGroupIngress",
+      "Properties" : {
+        "GroupId" : { "Ref" : "RDSSecurityGroup" },
+        "IpProtocol" : "tcp",
+        "FromPort" : "5432",
+        "ToPort" : "5432",
+        "SourceSecurityGroupId" : { "Ref" : "RDSSecurityGroup" }
+      }
+    },
+    "RDSRelayInstance" : {
+      "Type" : "AWS::EC2::Instance",
+      "DependsOn" : [ "RDSSecurityGroup" ],
+      "Properties" : {
+        "ImageId" : "ami-1e299d7e",
+        "InstanceType" : "t2.micro",
+        "KeyName" : { "Ref" : "KeyName" },
+        "SecurityGroupIds" : [ { "Ref" : "RDSSecurityGroup" } ]
+      }
+    },
+    "RDSPGInstance" : {
+      "Type" : "AWS::RDS::DBInstance",
+      "Properties" : {
+        "AllocatedStorage" : "5",
+        "DBName" : { "Ref" : "DBName" },
+        "DBInstanceClass" : "db.t2.micro",
+        "Engine" : "postgres",
+        "EngineVersion" : "9.5.4",
+        "MasterUsername" : { "Ref" : "DBUser" },
+        "MasterUserPassword" : { "Ref" : "DBPassword" },
+        "VPCSecurityGroups" : [ { "Ref" : "RDSSecurityGroup" } ]
+      }
+    }
+  },
+  "Outputs" : {
+    "SSHRelay" : {
+      "Description" : "RDS SSH relay address",
+      "Value" : { "Fn::GetAtt" : [ "RDSRelayInstance", "PublicDnsName" ] }
+    },
+    "PGHost" : {
+      "Description" : "RDS Postresql instance address",
+      "Value" : {
+        "Fn::Join" : [ "", [
+          { "Fn::GetAtt" : [ "RDSPGInstance", "Endpoint.Address" ] },
+          ":",
+          { "Fn::GetAtt" : [ "RDSPGInstance", "Endpoint.Port" ] }
+          ]
+        ]
+      }
+    }
+  }
+}
