@@ -71,7 +71,7 @@
         "DBName" : { "Ref" : "DBName" },
         "DBInstanceClass" : "db.t2.micro",
         "Engine" : "postgres",
-        "EngineVersion" : "9.5.4",
+        "EngineVersion" : "9.4.9",
         "MasterUsername" : { "Ref" : "DBUser" },
         "MasterUserPassword" : { "Ref" : "DBPassword" },
         "VPCSecurityGroups" : [ { "Ref" : "RDSSecurityGroup" } ]
