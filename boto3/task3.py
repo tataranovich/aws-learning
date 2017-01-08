@@ -18,6 +18,8 @@ ecsClusterName = namePrefix + 'Cluster'
 ecsLoadBalancerName = namePrefix + 'LoadBalancer'
 ecsLaunchConfigurationName = namePrefix + 'LaunchConfiguration'
 ecsAutoScalingGroupName = namePrefix + 'AutoScalingGroup'
+ecsS3UserName = namePrefix + 'S3User'
+ecsS3BucketName = namePrefix.lower() + 'bucket'
 
 def ec2_create_security_group(group_name=None, description=None, vpc_id=None):
     client = boto3.client('ec2')
@@ -231,3 +233,56 @@ try:
 except ClientError as e:
     if e.response['Error']['Code'] != 'AlreadyExists':
         print(e)
+
+print("Creating S3 bucket")
+s3 = boto3.resource('s3')
+try:
+    s3.Bucket(ecsS3BucketName).create(
+        ACL='private',
+        CreateBucketConfiguration={'LocationConstraint': 'us-west-2'}
+    )
+except ClientError as e:
+    if e.response['Error']['Code'] != 'BucketAlreadyOwnedByYou':
+        print(e)
+
+print("Creating S3 user")
+iam = boto3.resource('iam')
+try:
+    response = iam.User(ecsS3UserName).create()
+except ClientError as e:
+    if e.response['Error']['Code'] != 'EntityAlreadyExists':
+        print(e)
+
+print("Granting GET, PUT, DELETE to S3 user")
+ecsS3UserPolicy = '''{
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:ListBucket"
+            ],
+            "Resource": [
+                "arn:aws:s3:::%s"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:GetObject",
+                "s3:PutObject",
+                "s3:DeleteObject"
+            ],
+            "Resource": [
+                "arn:aws:s3:::%s/*"
+            ]
+        }
+    ]
+}''' % (ecsS3BucketName, ecsS3BucketName)
+
+try:
+    iam.User(ecsS3UserName).create_policy(
+        PolicyName=namePrefix + 'S3Policy',
+        PolicyDocument=ecsS3UserPolicy
+    )
+except ClientError as e:
+    print(e)
