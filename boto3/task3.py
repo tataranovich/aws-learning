@@ -198,6 +198,9 @@ chkconfig docker on
 usermod -aG docker centos
 service amazon-ecs start
 chkconfig amazon-ecs on
+yum install -y ruby
+curl -o /tmp/install https://aws-codedeploy-us-west-2.s3.amazonaws.com/latest/install
+ruby /tmp/install auto
 """.format(ip_address=ecsMountTargetId['IpAddress'], cluster_name=ecsClusterName)
 
 print("Creating launch configuration")
