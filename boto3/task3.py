@@ -20,6 +20,8 @@ ecsLaunchConfigurationName = namePrefix + 'LaunchConfiguration'
 ecsAutoScalingGroupName = namePrefix + 'AutoScalingGroup'
 ecsS3UserName = namePrefix + 'S3User'
 ecsS3BucketName = namePrefix.lower() + 'bucket'
+ecsDeployApplicationName = namePrefix + 'Application'
+ecsRepositoryName = namePrefix.lower() + 'repository'
 
 def ec2_create_security_group(group_name=None, description=None, vpc_id=None):
     client = boto3.client('ec2')
@@ -289,3 +291,60 @@ try:
     )
 except ClientError as e:
     print(e)
+
+print("Creating deploy application")
+codedeploy = boto3.client('codedeploy')
+try:
+    codedeploy.create_application(applicationName=ecsDeployApplicationName)
+except ClientError as e:
+    if e.response['Error']['Code'] != 'ApplicationAlreadyExistsException':
+        print(e)
+
+print("Creating deployment group")
+try:
+    codedeploy.create_deployment_group(
+        applicationName=ecsDeployApplicationName,
+        deploymentGroupName='Staging',
+        deploymentConfigName='CodeDeployDefault.OneAtATime',
+        autoScalingGroups=[
+            ecsAutoScalingGroupName
+        ],
+        serviceRoleArn='arn:aws:iam::410538873633:role/CodeDeployServiceRole',
+        autoRollbackConfiguration={
+            'enabled': False
+        }
+    )
+except ClientError as e:
+    if e.response['Error']['Code'] != 'DeploymentGroupAlreadyExistsException':
+        print(e)
+
+print("Deploying application")
+try:
+    codedeploy.create_deployment(
+        applicationName=ecsDeployApplicationName,
+        deploymentGroupName='Staging',
+        revision={
+            'revisionType': 'S3',
+            's3Location': {
+                'bucket': 'task3-bucket',
+                'key': 'sample-application.zip',
+                'bundleType': 'zip'
+            }
+        },
+        deploymentConfigName='CodeDeployDefault.OneAtATime',
+        ignoreApplicationStopFailures=False,
+        autoRollbackConfiguration={
+            'enabled': False
+        },
+        updateOutdatedInstancesOnly=False
+    )
+except ClientError as e:
+    print(e)
+
+print("Creating ECR repository")
+ecr = boto3.client('ecr')
+try:
+    ecr.create_repository(repositoryName=ecsRepositoryName)
+except ClientError as e:
+    if e.response['Error']['Code'] != 'RepositoryAlreadyExistsException':
+        print(e)
